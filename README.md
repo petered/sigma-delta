@@ -1,6 +1,6 @@
 # Sigma Delta Quantized Networks
 
-For now, we have the code for generating the [Temporal MNIST](https://github.com/petered/sigma-delta/blob/master/sigma_delta/temporal_mnist.py) dataset.
+Here is the code mentioned in our paper, [Sigma Delta Quantized Networks](http://openreview.net/pdf?id=HkNRsU5ge).  You can use this to replicate the experiments in the paper.
 
 To Setup (OSX/Linux):
 ```
