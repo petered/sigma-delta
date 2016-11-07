@@ -7,5 +7,6 @@ For now, we have the code for generating the [Temporal MNIST](https://github.com
 To Setup (OSX/Linux):
 ```
 git clone https://github.com/petered/sigma-delta.git
+cd sigma-delta
 source setup.sh
 ```
