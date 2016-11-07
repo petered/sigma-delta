@@ -3,7 +3,9 @@ scipy
 matplotlib
 scikit-learn
 pytest
-pymovie
+moviepy
+Pillow
 Theano==0.8.0
+tabulate
 -e git+http://github.com/QUVA-Lab/artemis.git#egg=artemis
 -e git+http://github.com/petered/plato#egg=plato

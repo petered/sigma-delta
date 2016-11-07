@@ -2,7 +2,8 @@ from collections import OrderedDict
 
 import theano.tensor as tt
 
-from plato.core import symbolic, tdbprint
+from artemis.general.numpy_helpers import get_rng
+from plato.core import symbolic
 from plato.tools.convnet.convnet import ConvLayer
 from sigma_delta.mlp.comp_error_scale_optimizer import get_error_loss
 from sigma_delta.convnets.conv_forward_pass import \
@@ -15,7 +16,7 @@ __author__ = 'peter'
 @symbolic
 class ScaleLearningRoundingConvnet(object):
 
-    def __init__(self, layers, optimizer, layerwise_scales=True):
+    def __init__(self, layers, optimizer, layerwise_scales=True, corruption_type='round', rng=None):
         """
         layers is an OrdereDict of callables.
         """
@@ -27,9 +28,14 @@ class ScaleLearningRoundingConvnet(object):
         self.layers = layers
         self.optimizer = optimizer
         self.layerwise_scales = layerwise_scales
+        self.corruption_type =corruption_type
+        self.rng = get_rng(rng)
 
     def __call__(self, inp, do_round=True):
         return self.get_named_layer_activations(inp, do_round=do_round).values()[-1]
+
+    # def get_named_activations(self, inp, do_round=True):
+    #     return self.get_named_layer_activations(inp, do_round=do_round)
 
     def _compute_activations(self, x, do_round):
         rounding_signals = OrderedDict()
@@ -39,7 +45,7 @@ class ScaleLearningRoundingConvnet(object):
                 if not do_round:
                     continue
                 else:
-                    signals = layer.get_all_signals(x)  # Well look at the fancy rounding layer
+                    signals = layer.get_all_signals(x, corruption_type=self.corruption_type, rng = self.rng)  # Well look at the fancy rounding layer
                     rounding_signals[name] = signals
                     x = signals['output']
             else:
@@ -61,11 +67,15 @@ class ScaleLearningRoundingConvnet(object):
             assert isinstance(next_layer, ConvLayer), "Again"
             layer_comp_loss = tt.switch(sigs['scaled_input']>0, sigs['spikes'], -sigs['spikes']).sum() \
                 * get_conv_layer_fanout(next_layer.w.shape, conv_mode={0:'full', 1:'same'}[next_layer.border_mode])  # NOTE: NOT GENERAL: VGG SPECIFIC!
+            # layer_comp_loss = abs(sigs['spikes']).sum() \
+            #     * get_conv_layer_fanout(next_layer.w.shape, conv_mode={0:'full', 1:'same'}[next_layer.border_mode])  # NOTE: NOT GENERAL: VGG SPECIFIC!
+            print '{} fanout: {}'.format(layer_name, get_conv_layer_fanout(next_layer.w.get_value().shape, conv_mode={0:'full', 1:'same'}[next_layer.border_mode]))
             comp_grad = tt.grad(layer_comp_loss, wrt=scale_param, consider_constant=[sigs['epsilon']])
-            tdbprint(comp_weight*comp_grad, layer_name+'scaled comp grad')
-            tdbprint(error_grad, layer_name+'scaled error grad')
+            # tdbprint(comp_weight*comp_grad, layer_name+'scaled comp grad')
+            # tdbprint(error_grad, layer_name+'scaled error grad')
             layer_grad = error_grad + comp_weight*comp_grad
             param_grad_pairs.append((scale_param, layer_grad))
+        # tdbplot(tt.stack([abs(sigs['spikes']).mean() for sigs in rounding_signals.values()]), 'mea spikes', plot_type='line')
         scale_params, grads = zip(*param_grad_pairs)
         self.optimizer.update_from_gradients(parameters=scale_params, gradients=grads)
 
@@ -87,7 +97,7 @@ class ScaleLearningRoundingConvnet(object):
             p.set_value(0.)
 
     @staticmethod
-    def from_convnet_specs(convnet_specifiers, optimizer):
+    def from_convnet_specs(convnet_specifiers, **kwargs):
         """
         Return a "ScaleLearningRoundingConvnet" convnet.
 
@@ -95,5 +105,5 @@ class ScaleLearningRoundingConvnet(object):
         :return: A SpikingDifferenceConvNet object
         """
         round_net_specs = conv_specs_to_round_layers(convnet_specifiers)
-        net = ScaleLearningRoundingConvnet(round_net_specs, optimizer=optimizer, layerwise_scales=True)
+        net = ScaleLearningRoundingConvnet(round_net_specs, **kwargs)
         return net

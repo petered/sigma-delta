@@ -4,6 +4,7 @@ import theano
 from theano import tensor as tt
 from artemis.general.should_be_builtins import izip_equal
 from plato.core import create_shared_variable, symbolic, add_update
+from plato.interfaces.helpers import get_theano_rng
 from plato.tools.convnet.conv_specifiers import ConvolverSpec
 from plato.tools.convnet.convnet import specifier_to_layer, ConvLayer
 
@@ -178,10 +179,20 @@ class ScaledRoundingLayer(object):
     def __call__(self, input_):
         return self.get_all_signals(input_)['output']
 
-    def get_all_signals(self, input_):
+    def get_all_signals(self, input_, corruption_type = 'round', rng = None):
         scale = self.get_scale()
         scaled_input = input_*scale
-        epsilon = tt.round(scaled_input) - scaled_input
+        if corruption_type == 'round':
+            epsilon = tt.round(scaled_input) - scaled_input
+        elif corruption_type == 'randround':
+            rng = get_theano_rng(rng)
+            epsilon = tt.where(rng.uniform(scaled_input.shape)>(scaled_input % 1), tt.floor(scaled_input), tt.ceil(scaled_input))-scaled_input
+            print 'STOCH ROUNDING'
+        elif corruption_type == 'rand':
+            rng = get_theano_rng(1234)
+            epsilon = rng.uniform(scaled_input.shape)-.5
+        else:
+            raise Exception('fdsfsd')
         spikes = scaled_input + epsilon
         output = spikes / scale
         signals = dict(
@@ -192,6 +203,31 @@ class ScaledRoundingLayer(object):
             output=output,
             )
         return signals
+
+    # def get_all_signals(self, input_):
+    #     scale = self.get_scale()
+    #
+    #
+    #
+    #     scaled_input = input_*scale
+    #
+    #
+    #
+    #     # epsilon = tt.round(scaled_input) - scaled_input
+    #
+    #     rng = get_theano_rng(1234)
+    #     epsilon = rng.uniform(scaled_input.shape)-.5
+    #
+    #     spikes = scaled_input + epsilon
+    #     output = spikes / scale
+    #     signals = dict(
+    #         input=input_,
+    #         scaled_input=scaled_input,
+    #         spikes=spikes,
+    #         epsilon=epsilon,
+    #         output=output,
+    #         )
+    #     return signals
 
     def get_scale_param(self):
         return self.log_scales
@@ -240,8 +276,6 @@ class ScaledHerdingLayer(object):
         self.phi.set_value(np.zeros_like(self.phi.get_value()))
 
 
-
-
 class SignedSpikingLayer(object):
 
     def __init__(self, shape, scale = 1):
@@ -265,11 +299,7 @@ class OnceAddConvLayer(ConvLayer):
     def __init__(self, *args, **kwargs):
         ConvLayer.__init__(self, *args, **kwargs)
         self.bias_switch = create_shared_variable(1.)
-        # Note: we used to just multiply the bias vector by zero.  But this resulted in a very sneaky
-        # bug, because when we try to get the parameters (using layer.parameters) we do not expect the
-        # biases to be changed from a forward pass!
 
-    # pass
     def __call__(self, x):
         """
         param x: A (n_samples, n_input_maps, size_y, size_x) image/feature tensor
@@ -300,33 +330,6 @@ class ScalingLayer(object):
             return x
         else:
             return x*tt.constant(self.scale, dtype=theano.config.floatX)
-
-
-class RectSpikingLayer(object):
-
-    def __init__(self, shape):
-        self.phi = create_shared_variable(np.zeros(shape))
-
-    def __call__(self, inputs):
-        inc_phi = self.phi + inputs
-        spikes = tt.round(tt.maximum(0, inc_phi))
-        new_phi = inc_phi-spikes
-        add_update(self.phi, new_phi)
-        return spikes
-
-
-class RectDiffLayer(object):
-
-    def __init__(self, shape):
-        self.phi = create_shared_variable(np.zeros(shape))
-        self.last_activations = create_shared_variable(np.zeros(shape))
-
-    def __call__(self, inputs):
-        inc_phi = self.phi + inputs
-        activations = tt.maximum(0, inc_phi)
-        add_update(self.last_activations, activations)
-        add_update(self.phi, inc_phi)
-        return activations - self.last_activations
 
 
 class TemporalDifference(object):
