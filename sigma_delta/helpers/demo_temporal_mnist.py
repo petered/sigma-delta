@@ -1,7 +1,8 @@
+import numpy as np
 from artemis.plotting.db_plotting import dbplot, hold_dbplots
 from utils.datasets.mnist import get_mnist_dataset
-import numpy as np
-from sigma_delta.temporal_mnist import get_temporal_mnist_dataset
+
+from sigma_delta.helpers.temporal_mnist import get_temporal_mnist_dataset
 
 __author__ = 'peter'
 
