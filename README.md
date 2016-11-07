@@ -14,3 +14,5 @@ To run the experiments:
 python sigma_delta/all_experiments.py
 ```
 Then choose a number and press enter.
+
+Please report any problems or errors.
