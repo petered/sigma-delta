@@ -1,9 +1,9 @@
 import numpy as np
-from artemis.fileman.disk_memoize import memoize_to_disk, memoize_to_disk_and_cache
+from artemis.fileman.disk_memoize import memoize_to_disk_and_cache
 from artemis.general.should_be_builtins import bad_value
-from utils.datasets.datasets import DataSet
-from utils.datasets.mnist import get_mnist_dataset
-from utils.tools.progress_indicator import ProgressIndicator
+from artemis.ml.datasets.datasets import DataSet
+from artemis.ml.datasets.mnist import get_mnist_dataset
+from artemis.general.progress_indicator import ProgressIndicator
 
 __author__ = 'peter'
 

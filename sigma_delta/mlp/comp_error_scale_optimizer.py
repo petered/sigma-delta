@@ -1,4 +1,5 @@
 import numpy as np
+import theano
 from theano.gradient import disconnected_grad
 import theano.tensor as tt
 from artemis.general.should_be_builtins import izip_equal, bad_value
@@ -42,7 +43,7 @@ class CompErrorScaleOptimizer(object):
             bs = [np.zeros(w.shape[1]) for w in ws]
         self.ws = [create_shared_variable(w) for w in ws]
         self.bs = [create_shared_variable(b) for b in bs]
-        self.comp_weight = comp_weight
+        self.comp_weight = tt.constant(comp_weight, dtype=theano.config.floatX)
         self.optimizer = optimizer
         self.hidden_activations = hidden_activations
         self.output_activation = output_activation

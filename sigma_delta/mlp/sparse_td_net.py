@@ -1,7 +1,6 @@
-from artemis.general.should_be_builtins import izip_equal
-from spiking_experiments.common.forward_pass import scaled_quantized_forward_pass, sparse_nn_flop_count
+from sigma_delta.mlp.forward_pass import scaled_quantized_forward_pass, sparse_nn_flop_count
 from artemis.ml.tools.neuralnets import activation_function
-from spiking_experiments.common.quantization import quantize_sequence
+from sigma_delta.helpers.quantization import quantize_sequence
 
 __author__ = 'peter'
 import numpy as np
@@ -58,16 +57,11 @@ def tdnet_forward_pass_cost_and_output(inputs, weights, scales=None, version = '
     assert version in ('td', 'round')
     if version == 'td':
         activations = sparse_temporal_forward_pass(inputs = inputs, weights=weights, scales=scales, **other_kwargs)
-        # dbplot(activations[4][:100], 'td-acts')
     else:
         activations = scaled_quantized_forward_pass(inputs = inputs, weights=weights, scales=scales, **other_kwargs)
-        # dbplot(activations[4][:100], 'round-acts')
     spike_activations = activations[1::3]
-    # assert all(np.array_equal(np.round(a), a) for a in spike_activations), "So-called 'spikes' are not integer"
-
     if isinstance(computation_calc, (list, tuple)):
         n_ops = [sparse_nn_flop_count(spike_activations, [w.shape[1] for w in weights], mode=m) for m in computation_calc]
     else:
         n_ops = sparse_nn_flop_count(spike_activations, [w.shape[1] for w in weights], mode=computation_calc)
-    # n_ops = sum(np.abs(s).sum()*w.shape[1] for s, w in izip_equal(spike_activations, weights))
     return n_ops, activations[-1]
