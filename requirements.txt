@@ -8,6 +8,6 @@ Pillow
 Theano==0.8.0
 tabulate
 -e git+http://github.com/QUVA-Lab/artemis.git@0.1.0#egg=artemis
--e git+http://github.com/petered/plato@0.1.0#egg=plato
+-e git+http://github.com/petered/plato@0.1.1#egg=plato
 -e git+http://github.com/QUVA-Lab/artemis.git#egg=artemis
 -e git+http://github.com/petered/plato#egg=plato
