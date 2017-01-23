@@ -1,25 +1,25 @@
-import os
 from collections import OrderedDict
-from artemis.fileman.experiment_record import experiment_function, experiment_root
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
+import os
+from artemis.fileman.experiment_record import experiment_function, experiment_root
 from artemis.fileman.local_dir import get_local_path, make_dir
 from artemis.general.ezprofile import EZProfiler
 from artemis.general.mymath import cummean
-from artemis.general.numpy_helpers import get_rng
+from artemis.general.progress_indicator import ProgressIndicator
 from artemis.general.should_be_builtins import izip_equal
-from artemis.ml.datasets.ilsvrc import load_ilsvrc_video
+from artemis.ml.tools.iteration import minibatch_iterate_info
 from artemis.plotting.db_plotting import dbplot, set_dbplot_figure_size, dbplot_hang
 from artemis.plotting.matplotlib_backend import LinePlot
+from helpers.ilsvrc_data import get_vgg_video_splice
+from matplotlib.gridspec import GridSpec
 from plato.tools.convnet.convnet import ConvNet
 from plato.tools.optimization.optimizers import get_named_optimizer
-from plato.tools.pretrained_networks.vggnet import get_vgg_layer_specifiers, im2vgginput, get_vgg_label_at
+from plato.tools.pretrained_networks.vggnet import get_vgg_layer_specifiers, get_vgg_label_at
 from sigma_delta.convnets.conv_forward_pass import \
     RoundConvNetForwardPass, SigmaDeltaConvNetForwardPass, get_full_convnet_computational_cost
 from sigma_delta.convnets.scale_learing_convnet import ScaleLearningRoundingConvnet
-from artemis.ml.tools.iteration import minibatch_iterate_info
-from artemis.general.progress_indicator import ProgressIndicator
-
 
 __author__ = 'peter'
 
@@ -43,11 +43,15 @@ def demo_optimize_conv_scales(n_epochs=5, comp_weight = 1e-11, learning_rate=0.1
     training_videos, training_vgg_inputs = get_vgg_video_splice(['ILSVRC2015_train_00033010', 'ILSVRC2015_train_00336001'], shuffle=shuffle_training, shuffling_rng=1234)
     test_videos, test_vgg_inputs = get_vgg_video_splice(['ILSVRC2015_train_00033009', 'ILSVRC2015_train_00033007'])
 
-    set_dbplot_figure_size(12, 6)
+    set_dbplot_figure_size(12, 9)
+    plt.subplots_adjust(left = 0.4)
 
+    # Arrange plots
+    gs1 = GridSpec(3, 1, top=1, bottom=0.45, hspace=0.06)
+    gs2 = GridSpec(2, 1, top=0.35, bottom=.1, hspace=0.06)
     n_frames_to_show = 10
     display_frames = np.arange(len(test_videos)/n_frames_to_show/2, len(test_videos), len(test_videos)/n_frames_to_show)
-    ax1=dbplot(np.concatenate(test_videos[display_frames], axis=1), "Test Videos", title = '', plot_type='pic')
+    ax1=dbplot(np.concatenate(test_videos[display_frames], axis=1), "Test Videos", title = '', plot_type='pic', axis=gs1[0, 0])
     plt.subplots_adjust(wspace=0, hspace=.05)
     ax1.set_xticks(224*np.arange(len(display_frames)/2)*2+224/2)
     ax1.tick_params(labelbottom = 'on')
@@ -78,23 +82,23 @@ def demo_optimize_conv_scales(n_epochs=5, comp_weight = 1e-11, learning_rate=0.1
         if minibatch_info.test_now:
             with EZProfiler('test'):
                 current_scales = f_get_scales()
-                round_cost, round_out = round_fp.get_cost_and_output(test_vgg_inputs, scales=current_scales)
-                sd_cost, sd_out = sigmadelta_fp.get_cost_and_output(test_vgg_inputs, scales=current_scales)
-                round_guesses, round_top1_correct, round_top5_correct = get_and_report_scores(round_cost, round_out, name='Round', true_top_1=true_guesses, true_top_k=top5_true_guesses)
-                sd_guesses, sd_top1_correct, sd_top5_correct = get_and_report_scores(sd_cost, sd_out, name='SigmaDelta', true_top_1=true_guesses, true_top_k=top5_true_guesses)
+                round_costs, round_out = round_fp.get_cost_and_output(test_vgg_inputs, scales=current_scales)
+                sd_costs, sd_out = sigmadelta_fp.get_cost_and_output(test_vgg_inputs, scales=current_scales)
+                round_guesses, round_top1_correct, round_top5_correct = get_and_report_scores(round_costs.sum(axis=1), round_out, name='Round', true_top_1=true_guesses, true_top_k=top5_true_guesses)
+                sd_guesses, sd_top1_correct, sd_top5_correct = get_and_report_scores(sd_costs.sum(axis=1), sd_out, name='SigmaDelta', true_top_1=true_guesses, true_top_k=top5_true_guesses)
 
                 round_labels = [get_vgg_label_at(g, short=True) for g in round_guesses[display_frames[::2]]]
 
                 ax1.set_xticklabels(['{}\n{}'.format(tg, rg) for tg, rg in izip_equal(true_labels, round_labels)])
-
-                ax=dbplot(np.array([round_cost/1e9, sd_cost/1e9, full_convnet_cost/1e9]).T, 'Computation',
+                ax=dbplot(np.array([round_costs.sum(axis=1)/1e9, sd_costs.sum(axis=1)/1e9, full_convnet_cost.sum(axis=1)/1e9]).T, 'Computation',
                         plot_type='thick-line',
                         ylabel='GOps',
                         title = '',
                         legend=['Round', '$\Sigma\Delta$', 'Original'],
+                        axis=gs1[1, 0],
+                        grid=True,
                         )
                 ax.set_xticklabels([])
-                plt.grid()
                 dbplot(100*np.array([cummean(sd_top1_correct), cummean(sd_top5_correct)]).T, "Score",
                     plot_type=lambda: LinePlot(y_bounds=(0, 100),plot_kwargs=[dict(linewidth=3, color='k'), dict(linewidth=3, color='k', linestyle=':')]),
                     title='',
@@ -102,8 +106,26 @@ def demo_optimize_conv_scales(n_epochs=5, comp_weight = 1e-11, learning_rate=0.1
                     ylabel='Cumulative\nPercent Accuracy',
                     xlabel='Frame #',
                     layout='v',
+                    axis=gs1[2, 0],
+                    grid=True,
                     )
-                plt.grid()
+                ax=dbplot((np.arange(1, 20), np.array([round_costs.mean(axis=0), sd_costs.mean(axis=0), full_convnet_cost.mean(axis=0)]).T /1e9), 'Layerwise Computational Costs',
+                    ylabel = 'GOps/frame',
+                    legend=['Round', '$\Sigma\Delta$', 'Original'],
+                    plot_type=lambda: LinePlot(plot_kwargs = dict(marker='.', linewidth=2, markersize=10), y_bounds = (0, None)),
+                    axis=gs2[0, 0],
+                    grid=True,
+                    )
+                ax.set_xticklabels([])
+                dbplot((np.arange(1, 20), sd_costs.mean(axis=0)/round_costs.mean(axis=0)), 'Ratio',
+                    xlabel='Layer #',
+                    ylabel='$\Sigma\Delta$:Round\nRatio',
+                    title='',
+                    plot_type=lambda: LinePlot(plot_kwargs = dict(marker='.', linewidth=2, markersize=10, color='k'), y_bounds = (0, None)),
+                    # plot_type=lambda: LinePlot(plot_kwargs=dict(color='gray', linestyle='--')),
+                    axis = gs2[1, 0],
+                    grid=True,
+                    )
             plt.savefig(os.path.join(output_dir, 'epoch-%.3g.pdf' % (minibatch_info.epoch, )))
         f_train_slrc(input_minibatch)
         p()
@@ -111,9 +133,9 @@ def demo_optimize_conv_scales(n_epochs=5, comp_weight = 1e-11, learning_rate=0.1
 
     results = dict(
         current_scales=current_scales,
-        round_cost=round_cost,
+        round_cost=round_costs.sum(axis=1),
         round_out=round_out,
-        sd_cost=sd_cost,
+        sd_cost=sd_costs.sum(axis=1),
         sd_out=sd_out,
         round_guesses=round_guesses,
         round_top1_correct=round_top1_correct,
@@ -139,18 +161,6 @@ def get_and_report_scores(comp_cost, output, true_top_1, true_top_k, name):
     return guesses, top1_correct, top5_correct
 
 
-def get_vgg_video_splice(video_identifiers, shuffle=False, shuffling_rng = None):
-
-    videos = np.concatenate([load_ilsvrc_video(identifier, size=(224, 224)) for identifier in video_identifiers])
-    vgg_mode_videos = im2vgginput(videos)
-
-    if shuffle:
-        rng = get_rng(shuffling_rng)
-        rng.shuffle(vgg_mode_videos)
-
-    return videos, vgg_mode_videos
-
-
 def flatten2(data):
     return data.reshape(data.shape[0], -1)
 
@@ -173,15 +183,17 @@ def percent_in_top_k(guesses, top_k):
 
 demo_optimize_conv_scales.add_variant('paper_result', n_epochs=5, comp_weight = 1e-11, learning_rate=0.1, error_loss='L2')
 
+demo_optimize_conv_scales.add_variant('paper_result_mod', n_epochs=5, comp_weight = 2e-12, learning_rate=1., error_loss='L2')
+
 
 @experiment_function
 def scan_lambdas_for_conv_exp():
 
     results = OrderedDict()
     for comp_weight in [3e-13, 1e-12, 3e-12, 1e-11, 3e-11, 1e-10]:
-        results['lambda=%.3g' % (comp_weight, )]=demo_optimize_conv_scales(n_epochs=3, comp_weight = 1e-12, learning_rate=0.1, error_loss='KL')
+        results['lambda=%.3g' % (comp_weight, )]=demo_optimize_conv_scales(n_epochs=5, comp_weight = 2e-12, learning_rate=0.1, error_loss='KL')
     return results
 
 
 if __name__ == '__main__':
-    demo_optimize_conv_scales.get_variant('paper_result').run()
+    demo_optimize_conv_scales.get_variant('paper_result_mod').run()

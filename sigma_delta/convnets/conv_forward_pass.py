@@ -18,13 +18,17 @@ class DiscretizedForwardPass(object):
         self._func = self._get_cost_and_output.compile()
 
     def get_cost_and_output(self, x, scales):
+        """
+        :param x: An (n_frames, size_y, size_x, 3) input video
+        :param scales: An array of per-layer scales.
+        :return: computational_costs, outputs
+            computational_costs is an (n_frames, n_linear_layers) array of computational costs per layer with a linear transform
+            outputs is an (n_frames, n_outputs, 1, 1) array of outputs
+        """
         for scale_value, scaled_rounder in izip_equal(scales, [layer for layer in self.named_layers.values() if isinstance(layer, (ScaledRoundingLayer, ScaledHerdingLayer))]):
             scaled_rounder.set_scale(scale_value)
-
         comp_costs, outputs = zip(*[self._func(xi[None]) for xi in x])  # Can't just self._func(x) for memory reasons
-        return np.concatenate(comp_costs), np.concatenate(outputs)
-
-        # return self._func(x)
+        return np.concatenate(comp_costs, axis=0), np.concatenate(outputs)
 
     @symbolic
     def _get_cost_and_output(self, x):
@@ -32,17 +36,17 @@ class DiscretizedForwardPass(object):
         Do a forward pass of the network and compute the cost and output for a given input frame
         :return:
         """
-        total_ops = 0
+        total_ops = []
         for (name, layer), next_layer in zip(self.named_layers.iteritems(), self.named_layers.values()[1:]+[None]):
             if isinstance(layer, (ScaledRoundingLayer, ScaledHerdingLayer)):  # Our layer is a rounding layer.
                 assert isinstance(next_layer, ConvLayer)
                 signals = layer.get_all_signals(x)  # Well look at the fancy rounding layer
-                total_ops += abs(signals['spikes']).flatten(2).sum(axis=1) * get_conv_layer_fanout(next_layer.w.shape, conv_mode={0:'full', 1:'same'}[next_layer.border_mode])
+                total_ops.append(abs(signals['spikes']).flatten(2).sum(axis=1) * get_conv_layer_fanout(next_layer.w.shape, conv_mode={0:'full', 1:'same'}[next_layer.border_mode]))
                 # NOTE: The Border-mode thing above is NOT necessarily correct... it just happens to be true for VGGnet that all "valid" convolutions are to 1x1 maps.
                 x = signals['output']
             else:
                 x = layer(x)
-        return total_ops, x
+        return tt.stack(total_ops, axis=1), x
 
 
 class RoundConvNetForwardPass(DiscretizedForwardPass):
@@ -150,18 +154,18 @@ def get_full_convnet_computational_cost(layer_specs, input_shape):
     Get the total number of opts required to execute a full convnet.
     :return:
     """
-    total_cost = 0
+    layerwise_costs = []
     in_shape = (1, )+input_shape
     for name, spec in layer_specs.iteritems():
         out_shape = spec.shape_transfer(in_shape)
         if isinstance(spec, ConvolverSpec):
             n_out, n_in, filter_size_y, filter_size_x = spec.w.shape
             fan_in = n_in*filter_size_x*filter_size_y
-            total_cost += np.prod(out_shape)*fan_in * 2
+            layerwise_costs.append(np.prod(out_shape)*fan_in * 2)
             # For each unit, that's (fan_in multiplications, fan_in-1 additions, and 1 bias addition)
         in_shape = out_shape
         assert out_shape[2]>=1 and out_shape[3]>=1
-    return total_cost
+    return layerwise_costs
 
 
 class ScaledRoundingLayer(object):
